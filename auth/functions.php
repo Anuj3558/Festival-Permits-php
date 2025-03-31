@@ -1,5 +1,59 @@
 <?php
 require_once __DIR__ . '/../config/database.php';
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+
+// Include PHPMailer files
+require_once __DIR__ . '/../PHPMailer/src/Exception.php';
+require_once __DIR__ . '/../PHPMailer/src/PHPMailer.php';
+require_once __DIR__ . '/../PHPMailer/src/SMTP.php';
+
+// Function to send email notifications for application status updates
+function sendApplicationStatusEmail($applicantEmail, $applicantName, $status) {
+    $mail = new PHPMailer(true);
+
+    try {
+        // SMTP Configuration
+        $mail->isSMTP();
+        $mail->Host       = 'smtp.mailtrap.io'; // Replace with your SMTP server
+        $mail->SMTPAuth   = true;
+        $mail->Username   = 'your_mailtrap_username'; // Replace with your Mailtrap username
+        $mail->Password   = 'your_mailtrap_password'; // Replace with your Mailtrap password
+        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port       = 587;
+
+        // Sender and recipient settings
+        $mail->setFrom('noreply@festivalpermits.gov.in', 'Festival Permits System');
+        $mail->addAddress($applicantEmail, $applicantName);
+
+        // Content
+        $mail->isHTML(true);
+        $mail->Subject = 'Application Status Update';
+        
+        // Email body based on status
+        if ($status === 'approved') {
+            $mail->Body = "
+                <h3>Dear $applicantName,</h3>
+                <p>Your festival permit application has been <strong>APPROVED</strong>!</p>
+                <p>You can now proceed with the next steps in your dashboard.</p>
+                <p>Thank you for using our services.</p>
+            ";
+        } else {
+            $mail->Body = "
+                <h3>Dear $applicantName,</h3>
+                <p>We regret to inform you that your festival permit application has been <strong>REJECTED</strong>.</p>
+                <p>Please check your dashboard for more details or contact support.</p>
+            ";
+        }
+
+        // Send the email
+        $mail->send();
+        return true;
+    } catch (Exception $e) {
+        error_log("Mailer Error: " . $e->getMessage());
+        return false;
+    }
+}
 
 function registerUser($fullName, $email, $password) {
     $db = (new Database())->connect();

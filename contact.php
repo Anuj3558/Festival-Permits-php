@@ -1,6 +1,7 @@
 <?php 
 $pageTitle = "Contact Us";
-include 'includes/header.php'; 
+include 'includes/header.php';
+require_once 'config/database.php';
 
 // Form processing
 $formData = [
@@ -47,24 +48,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($formData['message'])) {
         $errors['message'] = 'Message is required';
     }
-    
-    // If no errors, process form
+    // If no errors, process form and insert into database
     if (empty($errors)) {
-        // In a real application, you would send an email or save to database here
-        $successMessage = "Thank you for your message! We'll get back to you soon.";
-        
-        // Reset form on success
-        $formData = [
-            'name' => '',
-            'email' => '',
-            'phone' => '',
-            'subject' => '',
-            'message' => '',
-            'queryType' => 'general'
-        ];
+        try {
+            $db = (new Database())->connect();
+            $stmt = $db->prepare("INSERT INTO contact_submissions (name, email, phone, subject, message, query_type) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->execute([
+                $formData['name'],
+                $formData['email'],
+                $formData['phone'],
+                $formData['subject'],
+                $formData['message'],
+                $formData['queryType']
+            ]);
+
+            $successMessage = "Thank you for your message! We'll get back to you soon.";
+            
+            // Reset form on success
+            $formData = [
+                'name' => '',
+                'email' => '',
+                'phone' => '',
+                'subject' => '',
+                'message' => '',
+                'queryType' => 'general'
+            ];
+        } catch (PDOException $e) {
+            error_log("Database Error in contact.php: " . $e->getMessage());
+            $errors['database'] = "An error occurred while submitting your message. Please try again later.";
+        }
     }
 }
+
+// Rest of the existing HTML code
 ?>
+
 
 <main class="flex-grow">
   <!-- Hero Section -->

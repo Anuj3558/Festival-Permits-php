@@ -1,64 +1,60 @@
 <?php
 session_start();
-require_once __DIR__ . '/auth/functions.php';
+require_once __DIR__ . "/auth/functions.php";
 
-if (!isAuthenticated() || getUserRole() !== 'admin') {
-    header('Location: login.php');
+if (!isAuthenticated() || getUserRole() !== "admin") {
+    header("Location: login.php");
     exit();
 }
 
-if (isset($_GET['action']) && $_GET['action'] === 'logout') {
+if (isset($_GET["action"]) && $_GET["action"] === "logout") {
     logout();
-    header('Location: login.php');
+    header("Location: login.php");
     exit();
 }
 
-require_once __DIR__ . '/config/database.php';
+require_once __DIR__ . "/config/database.php";
 $db = (new Database())->connect();
 
+
 // Handle status updates
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    $id = $_POST['id'];
-    $newStatus = $_POST['status'];
-    $comments = $_POST['comments'] ?? '';
-    
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["action"])) {
+    $id = $_POST["id"];
+    $newStatus = $_POST["status"];
+    $comments = $_POST["comments"] ?? "";
+
     try {
+        require_once __DIR__ . "/config/database.php";
+        
+        // Fetch application details for email notification
+        $db = (new Database())->connect();
+        
+        $stmt = $db->prepare("SELECT applicant_email, applicant_name FROM applications WHERE id = ?");
+        $stmt->execute([$id]);
+        $application = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$application) {
+            throw new Exception("Application not found.");
+        }
+
         // Update application status
         $stmt = $db->prepare("UPDATE applications SET status = ? WHERE id = ?");
         $stmt->execute([$newStatus, $id]);
-        
-        // Add to status history
-        $stmt = $db->prepare("
-            INSERT INTO application_status_history 
-            (application_id, status, comments, changed_by) 
-            VALUES (?, ?, ?, ?)
-        ");
-        $stmt->execute([
-            $id, 
-            $newStatus, 
-            $comments, 
-            $_SESSION['user']['id']
-        ]);
-        
-        $_SESSION['message'] = [
-            'type' => 'success',
-            'text' => "Application status updated to " . ucfirst($newStatus)
-        ];
-        
-    } catch (PDOException $e) {
-        error_log("Database Error: " . $e->getMessage());
-        $_SESSION['message'] = [
-            'type' => 'error',
-            'text' => "Failed to update application status"
-        ];
+
+        // Send email notification if status is approved or rejected
+        if ($newStatus === "approved" || $newStatus === "rejected") {
+            sendApplicationStatusEmail($application['applicant_email'], 
+                                       $application['applicant_name'], 
+                                       $newStatus);
+        }
+
+    } catch (Exception $e) {
+        error_log("Error: " . $e->getMessage());
     }
-    
-    header('Location: ' . $_SERVER['PHP_SELF']);
-    exit();
 }
 
 // Get filter from query parameter
-$filter = $_GET['filter'] ?? 'all';
+$filter = $_GET["filter"] ?? "all";
 
 // Fetch applications with additional details
 try {
@@ -71,36 +67,38 @@ try {
         JOIN users u ON a.user_id = u.id
     ";
     $params = [];
-    
-    if ($filter !== 'all') {
+
+    if ($filter !== "all") {
         $query .= " WHERE a.status = ?";
         $params[] = $filter;
     }
-    
+
     $query .= " ORDER BY a.created_at DESC";
-    
+
     $stmt = $db->prepare($query);
     $stmt->execute($params);
     $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
 } catch (PDOException $e) {
     error_log("Database Error: " . $e->getMessage());
-    echo '<script>console.error("Database Error: ' . addslashes($e->getMessage()) . '");</script>';
+    echo '<script>console.error("Database Error: ' .
+        addslashes($e->getMessage()) .
+        '");</script>';
     $applications = [];
 }
 
 // Get status badge class
-function getStatusBadgeClass($status) {
-    switch($status) {
-        case 'approved':
-            return 'bg-green-100 text-green-800 border-green-200';
-        case 'rejected':
-            return 'bg-red-100 text-red-800 border-red-200';
-        case 'under_review':
-            return 'bg-blue-100 text-blue-800 border-blue-200';
-        case 'pending':
+function getStatusBadgeClass($status)
+{
+    switch ($status) {
+        case "approved":
+            return "bg-green-100 text-green-800 border-green-200";
+        case "rejected":
+            return "bg-red-100 text-red-800 border-red-200";
+        case "under_review":
+            return "bg-blue-100 text-blue-800 border-blue-200";
+        case "pending":
         default:
-            return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+            return "bg-yellow-100 text-yellow-800 border-yellow-200";
     }
 }
 ?>
@@ -145,7 +143,9 @@ function getStatusBadgeClass($status) {
                     <div>
                         <h1 class="text-2xl md:text-3xl font-bold">Admin Dashboard</h1>
                         <p class="text-sm md:text-base mt-1">
-                            Welcome back, <?= htmlspecialchars($_SESSION['user']['full_name']) ?>
+                            Welcome back, <?= htmlspecialchars(
+                                $_SESSION["user"]["full_name"]
+                            ) ?>
                         </p>
                     </div>
                     <div class="mt-4 md:mt-0 flex space-x-2">
@@ -160,13 +160,20 @@ function getStatusBadgeClass($status) {
             </div>
         </section>
         
-        <?php if (isset($_SESSION['message'])): ?>
+        <?php if (isset($_SESSION["message"])): ?>
             <div class="container mx-auto px-4 mt-4 animate-fade-in">
-                <div class="p-4 mb-4 text-sm text-<?= $_SESSION['message']['type'] === 'success' ? 'green' : 'red' ?>-700 bg-<?= $_SESSION['message']['type'] === 'success' ? 'green' : 'red' ?>-100 rounded-sm">
-                    <?= htmlspecialchars($_SESSION['message']['text']) ?>
+                <div class="p-4 mb-4 text-sm text-<?= $_SESSION["message"][
+                    "type"
+                ] === "success"
+                    ? "green"
+                    : "red" ?>-700 bg-<?= $_SESSION["message"]["type"] ===
+"success"
+    ? "green"
+    : "red" ?>-100 rounded-sm">
+                    <?= htmlspecialchars($_SESSION["message"]["text"]) ?>
                 </div>
             </div>
-            <?php unset($_SESSION['message']); ?>
+            <?php unset($_SESSION["message"]); ?>
         <?php endif; ?>
         
         <section class="py-6 md:py-8">
@@ -176,19 +183,34 @@ function getStatusBadgeClass($status) {
                         <h2 class="text-lg font-bold text-gov-darkblue">Festival Permit Applications</h2>
                         <div class="mt-2 md:mt-0">
                             <div class="flex flex-wrap gap-2">
-                                <a href="?filter=all" class="px-4 py-2 text-sm font-medium rounded-sm <?= $filter === 'all' ? 'bg-gov-blue text-white' : 'bg-white text-gray-700 border border-gray-300' ?>">
+                                <a href="?filter=all" class="px-4 py-2 text-sm font-medium rounded-sm <?= $filter ===
+                                "all"
+                                    ? "bg-gov-blue text-white"
+                                    : "bg-white text-gray-700 border border-gray-300" ?>">
                                     All
                                 </a>
-                                <a href="?filter=pending" class="px-4 py-2 text-sm font-medium rounded-sm <?= $filter === 'pending' ? 'bg-gov-blue text-white' : 'bg-white text-gray-700 border border-gray-300' ?>">
+                                <a href="?filter=pending" class="px-4 py-2 text-sm font-medium rounded-sm <?= $filter ===
+                                "pending"
+                                    ? "bg-gov-blue text-white"
+                                    : "bg-white text-gray-700 border border-gray-300" ?>">
                                     Pending
                                 </a>
-                                <a href="?filter=under_review" class="px-4 py-2 text-sm font-medium rounded-sm <?= $filter === 'under_review' ? 'bg-gov-blue text-white' : 'bg-white text-gray-700 border border-gray-300' ?>">
+                                <a href="?filter=under_review" class="px-4 py-2 text-sm font-medium rounded-sm <?= $filter ===
+                                "under_review"
+                                    ? "bg-gov-blue text-white"
+                                    : "bg-white text-gray-700 border border-gray-300" ?>">
                                     Under Review
                                 </a>
-                                <a href="?filter=approved" class="px-4 py-2 text-sm font-medium rounded-sm <?= $filter === 'approved' ? 'bg-gov-blue text-white' : 'bg-white text-gray-700 border border-gray-300' ?>">
+                                <a href="?filter=approved" class="px-4 py-2 text-sm font-medium rounded-sm <?= $filter ===
+                                "approved"
+                                    ? "bg-gov-blue text-white"
+                                    : "bg-white text-gray-700 border border-gray-300" ?>">
                                     Approved
                                 </a>
-                                <a href="?filter=rejected" class="px-4 py-2 text-sm font-medium rounded-sm <?= $filter === 'rejected' ? 'bg-gov-blue text-white' : 'bg-white text-gray-700 border border-gray-300' ?>">
+                                <a href="?filter=rejected" class="px-4 py-2 text-sm font-medium rounded-sm <?= $filter ===
+                                "rejected"
+                                    ? "bg-gov-blue text-white"
+                                    : "bg-white text-gray-700 border border-gray-300" ?>">
                                     Rejected
                                 </a>
                             </div>
@@ -215,53 +237,99 @@ function getStatusBadgeClass($status) {
                                     <?php foreach ($applications as $app): ?>
                                         <tr class="hover:bg-gray-50">
                                             <td class="px-4 py-3 text-sm text-gray-700">
-                                                <span class="font-medium"><?= htmlspecialchars($app['application_number']) ?></span>
+                                                <span class="font-medium"><?= htmlspecialchars(
+                                                    $app["application_number"]
+                                                ) ?></span>
                                                 <div class="text-xs text-gray-500 mt-1">
-                                                    <?= date('d M Y', strtotime($app['created_at'])) ?>
+                                                    <?= date(
+                                                        "d M Y",
+                                                        strtotime(
+                                                            $app["created_at"]
+                                                        )
+                                                    ) ?>
                                                 </div>
                                             </td>
                                             <td class="px-4 py-3 text-sm text-gray-700">
-                                                <div><?= htmlspecialchars($app['applicant_name']) ?></div>
+                                                <div><?= htmlspecialchars(
+                                                    $app["applicant_name"]
+                                                ) ?></div>
                                                 <div class="text-xs text-gray-500 mt-1">
-                                                    <?= htmlspecialchars($app['applicant_email']) ?>
+                                                    <?= htmlspecialchars(
+                                                        $app["applicant_email"]
+                                                    ) ?>
                                                 </div>
                                             </td>
                                             <td class="px-4 py-3 text-sm text-gray-700">
-                                                <?= ucfirst(htmlspecialchars($app['festival_type'])) ?>
+                                                <?= ucfirst(
+                                                    htmlspecialchars(
+                                                        $app["festival_type"]
+                                                    )
+                                                ) ?>
                                             </td>
                                             <td class="px-4 py-3 text-sm text-gray-700">
-                                                <?= htmlspecialchars($app['location_type']) ?>
+                                                <?= htmlspecialchars(
+                                                    $app["location_type"]
+                                                ) ?>
                                                 <div class="text-xs text-gray-500 mt-1">
-                                                    <?= substr(htmlspecialchars($app['address']), 0, 20) ?>...
+                                                    <?= substr(
+                                                        htmlspecialchars(
+                                                            $app["address"]
+                                                        ),
+                                                        0,
+                                                        20
+                                                    ) ?>...
                                                 </div>
                                             </td>
                                             <td class="px-4 py-3 text-sm text-gray-700">
-                                                <?= htmlspecialchars($app['duration']) ?> days
+                                                <?= htmlspecialchars(
+                                                    $app["duration"]
+                                                ) ?> days
                                             </td>
                                             <td class="px-4 py-3 text-sm text-gray-700">
-                                                <?= number_format($app['area'], 2) ?> m²
+                                                <?= number_format(
+                                                    $app["area"],
+                                                    2
+                                                ) ?> m²
                                             </td>
                                             <td class="px-4 py-3 text-sm text-gray-700">
-                                                <?= number_format($app['fee_amount'], 2) ?>
+                                                <?= number_format(
+                                                    $app["fee_amount"],
+                                                    2
+                                                ) ?>
                                             </td>
                                             <td class="px-4 py-3 text-sm">
-                                                <span class="px-2 py-1 text-xs font-medium rounded-sm border <?= getStatusBadgeClass($app['status']) ?>">
-                                                    <?= ucfirst(str_replace('_', ' ', $app['status'])) ?>
+                                                <span class="px-2 py-1 text-xs font-medium rounded-sm border <?= getStatusBadgeClass(
+                                                    $app["status"]
+                                                ) ?>">
+                                                    <?= ucfirst(
+                                                        str_replace(
+                                                            "_",
+                                                            " ",
+                                                            $app["status"]
+                                                        )
+                                                    ) ?>
                                                 </span>
                                             </td>
                                             <td class="px-4 py-3 text-sm">
                                                 <div class="flex space-x-1">
                                                     <button 
-                                                        onclick="showDetails('<?= htmlspecialchars($app['id']) ?>')"
+                                                        onclick="showDetails('<?= htmlspecialchars(
+                                                            $app["id"]
+                                                        ) ?>')"
                                                         class="p-1 text-gray-600 hover:text-gov-blue"
                                                         title="View Details"
                                                     >
                                                         <i class="fas fa-eye"></i>
                                                     </button>
                                                     
-                                                    <?php if ($app['status'] !== 'approved'): ?>
+                                                    <?php if (
+                                                        $app["status"] !==
+                                                        "approved"
+                                                    ): ?>
                                                         <form method="post" class="inline">
-                                                            <input type="hidden" name="id" value="<?= htmlspecialchars($app['id']) ?>">
+                                                            <input type="hidden" name="id" value="<?= htmlspecialchars(
+                                                                $app["id"]
+                                                            ) ?>">
                                                             <input type="hidden" name="status" value="approved">
                                                             <button 
                                                                 type="submit" 
@@ -274,9 +342,14 @@ function getStatusBadgeClass($status) {
                                                         </form>
                                                     <?php endif; ?>
                                                     
-                                                    <?php if ($app['status'] !== 'rejected'): ?>
+                                                    <?php if (
+                                                        $app["status"] !==
+                                                        "rejected"
+                                                    ): ?>
                                                         <form method="post" class="inline">
-                                                            <input type="hidden" name="id" value="<?= htmlspecialchars($app['id']) ?>">
+                                                            <input type="hidden" name="id" value="<?= htmlspecialchars(
+                                                                $app["id"]
+                                                            ) ?>">
                                                             <input type="hidden" name="status" value="rejected">
                                                             <button 
                                                                 type="submit" 
@@ -290,7 +363,11 @@ function getStatusBadgeClass($status) {
                                                     <?php endif; ?>
                                                     
                                                     <button 
-                                                        onclick="updateStatus('<?= htmlspecialchars($app['id']) ?>', '<?= htmlspecialchars($app['status']) ?>')"
+                                                        onclick="updateStatus('<?= htmlspecialchars(
+                                                            $app["id"]
+                                                        ) ?>', '<?= htmlspecialchars(
+    $app["status"]
+) ?>')"
                                                         class="p-1 text-blue-600 hover:text-blue-800"
                                                         title="Change Status"
                                                     >
@@ -415,149 +492,181 @@ function getStatusBadgeClass($status) {
     </div>
     
     <script>
-        async function showDetails(appId) {
-            try {
-                // Show loading state
-                document.getElementById('modalContent').innerHTML = `
-                    <div class="flex justify-center py-8">
-                        <i class="fas fa-circle-notch fa-spin text-4xl text-gov-blue loading-spinner"></i>
-                    </div>
-                `;
-                
-                document.getElementById('statusHistory').innerHTML = `
-                    <div class="flex justify-center py-4">
-                        <i class="fas fa-circle-notch fa-spin text-2xl text-gov-blue loading-spinner"></i>
-                    </div>
-                `;
-                
-                document.getElementById('detailsModal').classList.remove('hidden');
-                
-                // Fetch application details
-                const response = await fetch(`api/get-application.php?id=${appId}`);
-                console.log(response)
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Failed to fetch application');
-                }
-                
-                const app = await response.json();
-                
-                // Format dates
-                const createdDate = new Date(app.created_at).toLocaleDateString();
-                const startDate = new Date(app.date_from).toLocaleDateString();
-                const endDate = new Date(app.date_to).toLocaleDateString();
-                
-                // Populate details
-                document.getElementById('modalTitle').textContent = `Application: ${app.application_number}`;
-                
-                const content = `
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <h4 class="text-sm font-medium text-gray-700">Application Information</h4>
-                            <div class="mt-2 space-y-1">
-                                <p class="text-sm"><span class="font-medium">Application Date:</span> ${createdDate}</p>
-                                <p class="text-sm"><span class="font-medium">Status:</span> <span class="px-2 py-0.5 rounded text-xs ${getStatusBadgeClass(app.status)}">${app.status.replace('_', ' ')}</span></p>
-                            </div>
-                        </div>
-                        
-                        <div>
-                            <h4 class="text-sm font-medium text-gray-700">Applicant Information</h4>
-                            <div class="mt-2 space-y-1">
-                                <p class="text-sm"><span class="font-medium">Name:</span> ${app.applicant_name}</p>
-                                <p class="text-sm"><span class="font-medium">Organization:</span> ${app.applicant_organization || 'N/A'}</p>
-                                <p class="text-sm"><span class="font-medium">Contact:</span> ${app.applicant_mobile} | ${app.applicant_email}</p>
-                                <p class="text-sm"><span class="font-medium">ID Proof:</span> ${app.id_proof_type} (${app.id_proof_number})</p>
-                            </div>
-                        </div>
-                        
-                        <div>
-                            <h4 class="text-sm font-medium text-gray-700">Festival Details</h4>
-                            <div class="mt-2 space-y-1">
-                                <p class="text-sm"><span class="font-medium">Type:</span> ${app.festival_type}</p>
-                                <p class="text-sm"><span class="font-medium">Location:</span> ${app.location_type}</p>
-                                <p class="text-sm"><span class="font-medium">Address:</span> ${app.address}</p>
-                                <p class="text-sm"><span class="font-medium">Dates:</span> ${startDate} to ${endDate}</p>
-                                <p class="text-sm"><span class="font-medium">Duration:</span> ${app.duration} days</p>
-                            </div>
-                        </div>
-                        
-                        <div>
-                            <h4 class="text-sm font-medium text-gray-700">Pandal Specifications</h4>
-                            <div class="mt-2 space-y-1">
-                                <p class="text-sm"><span class="font-medium">Dimensions:</span> ${app.length}m × ${app.width}m × ${app.height}m</p>
-                                <p class="text-sm"><span class="font-medium">Area:</span> ${app.area} m²</p>
-                            </div>
-                        </div>
-                        
-                        <div>
-                            <h4 class="text-sm font-medium text-gray-700">Sound System</h4>
-                            <div class="mt-2 space-y-1">
-                                <p class="text-sm"><span class="font-medium">Required:</span> ${app.sound_system ? 'Yes' : 'No'}</p>
-                                ${app.sound_system ? `<p class="text-sm"><span class="font-medium">Power:</span> ${app.sound_system_power} kW</p>` : ''}
-                            </div>
-                        </div>
-                        
-                        <div class="md:col-span-2">
-                            <h4 class="text-sm font-medium text-gray-700">Financial Details</h4>
-                            <div class="mt-2 space-y-1">
-                                <p class="text-sm"><span class="font-medium">Base Fee:</span> ₹${(app.area * app.duration * 10).toFixed(2)} (${app.area}m² × ${app.duration} days × ₹10)</p>
-                                ${app.sound_system ? `<p class="text-sm"><span class="font-medium">Sound Fee:</span> ₹${(app.sound_system_power * 50).toFixed(2)} (${app.sound_system_power}kW × ₹50)</p>` : ''}
-                                <p class="text-sm font-medium"><span class="font-medium">Total Fee:</span> ₹${parseFloat(app.fee_amount).toFixed(2)}</p>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                
-                document.getElementById('modalContent').innerHTML = content;
-                
-                // Fetch status history
-                const historyResponse = await fetch(`/auth/api/get-status-history.php?application_id=${appId}`);
-                if (!historyResponse.ok) {
-                    const error = await historyResponse.json();
-                    throw new Error(error.error || 'Failed to fetch status history');
-                }
-                
-                const history = await historyResponse.json();
-                
-                let historyHtml = '';
-                if (history.length > 0) {
-                    history.forEach(item => {
-                        const date = new Date(item.created_at).toLocaleString();
-                        historyHtml += `
-                            <div class="flex items-start pb-2 mb-2 border-b border-gray-100 last:border-0">
-                                <div class="mr-3 mt-0.5">
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getStatusBadgeClass(item.status)}">
-                                        ${item.status.replace('_', ' ')}
-                                    </span>
-                                </div>
-                                <div class="flex-1">
-                                    <p class="text-sm">
-                                        ${date}
-                                        ${item.changed_by_name ? `by ${item.changed_by_name}` : ''}
-                                    </p>
-                                    ${item.comments ? `<p class="text-xs text-gray-600 mt-1">${item.comments}</p>` : ''}
-                                </div>
-                            </div>
-                        `;
-                    });
-                } else {
-                    historyHtml = '<p class="text-sm text-gray-500">No status history available</p>';
-                }
-                
-                document.getElementById('statusHistory').innerHTML = historyHtml;
-                
-            } catch (error) {
-                console.error('Error loading application details:', error);
-                document.getElementById('modalContent').innerHTML = `
-                    <div class="p-4 bg-red-50 text-red-700 rounded-sm">
-                        <p class="font-medium">Error loading application details</p>
-                        <p class="text-sm mt-1">${error.message}</p>
-                        <p class="text-xs mt-2">Please try again or contact support if the problem persists.</p>
-                    </div>
-                `;
-                document.getElementById('statusHistory').innerHTML = '';
+async function showDetails(appId) {
+    try {
+        // Show loading state
+        document.getElementById('modalContent').innerHTML = `
+            <div class="flex justify-center py-8">
+                <i class="fas fa-circle-notch fa-spin text-4xl text-gov-blue loading-spinner"></i>
+            </div>
+        `;
+        
+        document.getElementById('statusHistory').innerHTML = `
+            <div class="flex justify-center py-4">
+                <i class="fas fa-circle-notch fa-spin text-2xl text-gov-blue loading-spinner"></i>
+            </div>
+        `;
+        
+        document.getElementById('detailsModal').classList.remove('hidden');
+        
+        // Fetch application details with proper error handling
+        let response;
+        let data;
+        
+        try {
+            response = await fetch(`/Festival-Permits-php/api/get-application.php?id=${appId}`);
+            const rawText = await response.text();
+            
+            // Log the raw response for debugging
+            console.log('Raw API response:', rawText);
+            
+            // Check if response is HTML (error page)
+            if (rawText.trim().startsWith('<')) {
+                throw new Error('Server returned HTML instead of JSON. Check server logs.');
             }
+            
+            // Try to parse the JSON
+            try {
+                data = JSON.parse(rawText);
+            } catch (parseError) {
+                throw new Error(`Invalid JSON response: ${parseError.message}`);
+            }
+        } catch (fetchError) {
+            throw new Error(`Failed to fetch application: ${fetchError.message}`);
         }
+        
+        // Display the application data
+        document.getElementById('modalContent').innerHTML = `
+            <h2 class="text-2xl font-bold mb-4">Application: ${data.application_number}</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div class="bg-gray-50 p-4 rounded">
+                    <h3 class="font-bold text-lg mb-2">Applicant Information</h3>
+                    <p><strong>Name:</strong> ${data.applicant.name}</p>
+                    <p><strong>Email:</strong> ${data.applicant.email}</p>
+                    <p><strong>Mobile:</strong> ${data.applicant.mobile}</p>
+                    <p><strong>Organization:</strong> ${data.applicant.organization}</p>
+                </div>
+                <div class="bg-gray-50 p-4 rounded">
+                    <h3 class="font-bold text-lg mb-2">Festival Details</h3>
+                    <p><strong>Type:</strong> ${data.festival.type}</p>
+                    <p><strong>Location:</strong> ${data.festival.location}</p>
+                    <p><strong>Duration:</strong> ${data.festival.duration} days</p>
+                    <p><strong>Dates:</strong> ${data.festival.date_from || 'Not specified'} to ${data.festival.date_to || 'Not specified'}</p>
+                </div>
+            </div>
+            
+            <div class="mb-6">
+                <h3 class="font-bold text-lg mb-2">Address</h3>
+                <p>${data.festival.address}</p>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div class="bg-gray-50 p-4 rounded">
+                    <h3 class="font-bold text-lg mb-2">Pandal Dimensions</h3>
+                    <p><strong>Length:</strong> ${data.pandal.length} m</p>
+                    <p><strong>Width:</strong> ${data.pandal.width} m</p>
+                    <p><strong>Height:</strong> ${data.pandal.height} m</p>
+                    <p><strong>Area:</strong> ${data.pandal.area} sq.m</p>
+                </div>
+                <div class="bg-gray-50 p-4 rounded">
+                    <h3 class="font-bold text-lg mb-2">Sound System</h3>
+                    <p><strong>Required:</strong> ${data.sound_system.required ? 'Yes' : 'No'}</p>
+                    <p><strong>Power:</strong> ${data.sound_system.power} W</p>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-gray-50 p-4 rounded">
+                    <h3 class="font-bold text-lg mb-2">Payment Information</h3>
+                    <p><strong>Total Fee:</strong> ₹${data.fees.total_fee}</p>
+                    <p><strong>Payment Status:</strong> ${data.payment_status}</p>
+                </div>
+                <div class="bg-gray-50 p-4 rounded">
+                    <h3 class="font-bold text-lg mb-2">ID Verification</h3>
+                    <p><strong>ID Type:</strong> ${data.id_proof.type}</p>
+                    <p><strong>ID Number:</strong> ${data.id_proof.number}</p>
+                </div>
+            </div>
+            
+            <div class="mt-6">
+                <h3 class="font-bold text-lg mb-2">Current Status</h3>
+                <div class="inline-block px-3 py-1 rounded ${getStatusClass(data.status)}">
+                    ${formatStatus(data.status)}
+                </div>
+            </div>
+        `;
+        
+        // Display status history (if available)
+        try {
+            const historyResponse = await fetch(`/Festival-Permits-php/api/get-status-history.php?id=${appId}`);
+            const historyText = await historyResponse.text();
+            
+            let historyData;
+            try {
+                historyData = JSON.parse(historyText);
+            } catch (e) {
+                throw new Error('Invalid status history response');
+            }
+            
+            if (Array.isArray(historyData) && historyData.length > 0) {
+                let historyHTML = '<h3 class="font-bold text-lg mb-2">Status History</h3><ul class="divide-y">';
+                historyData.forEach(entry => {
+                    historyHTML += `
+                        <li class="py-2">
+                            <div class="flex justify-between">
+                                <span class="inline-block px-2 py-1 text-sm rounded ${getStatusClass(entry.status)}">
+                                    ${formatStatus(entry.status)}
+                                </span>
+                                <span class="text-gray-500">${formatDate(entry.date)}</span>
+                            </div>
+                            ${entry.notes ? `<p class="text-sm mt-1">${entry.notes}</p>` : ''}
+                        </li>
+                    `;
+                });
+                historyHTML += '</ul>';
+                document.getElementById('statusHistory').innerHTML = historyHTML;
+            } else {
+                document.getElementById('statusHistory').innerHTML = '<p>No status history available</p>';
+            }
+        } catch (historyError) {
+            document.getElementById('statusHistory').innerHTML = '<p>Could not load status history</p>';
+            console.error('Status history error:', historyError);
+        }
+        
+    } catch (error) {
+        console.error('Error in showDetails:', error);
+        document.getElementById('modalContent').innerHTML = `
+            <div class="bg-red-50 border border-red-200 text-red-800 p-4 rounded">
+                <h3 class="font-bold text-lg">Error loading application details</h3>
+                <p>${error.message}</p>
+                <p class="mt-2 text-sm">Please try again or contact support if the problem persists.</p>
+            </div>
+        `;
+        document.getElementById('statusHistory').innerHTML = '';
+    }
+}
+
+// Helper functions for formatting
+function getStatusClass(status) {
+    switch(status) {
+        case 'pending': return 'bg-yellow-100 text-yellow-800';
+        case 'under_review': return 'bg-blue-100 text-blue-800';
+        case 'approved': return 'bg-green-100 text-green-800';
+        case 'rejected': return 'bg-red-100 text-red-800';
+        default: return 'bg-gray-100 text-gray-800';
+    }
+}
+
+function formatStatus(status) {
+    return status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+}
+
+function formatDate(dateString) {
+    const options = { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+    return new Date(dateString).toLocaleDateString(undefined, options);
+}
+
+
         
         function updateStatus(appId, currentStatus) {
             document.getElementById('statusAppId').value = appId;
